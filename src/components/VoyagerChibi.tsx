@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 // 1. Type Definitions & Constants
 // ============================================================================
 
-export type VoyagerExpression = 'idle' | 'happy' | 'sleeping' | 'gentle' | 'strict';
+export type VoyagerExpression = 'idle' | 'happy' | 'sleeping' | 'gentle' | 'strict' | 'drinking';
 export type VoyagerSize = 'sm' | 'md' | 'lg' | 'xl';
 export type VoyagerAccessory = 'sailor_hat' | 'star_cape' | 'star_halo' | 'violin';
 
@@ -41,7 +41,7 @@ export const VOYAGER_SIZES: Record<VoyagerSize, { width: number; height: number;
 // ============================================================================
 
 export function sanitizeExpression(expr?: string | null): VoyagerExpression {
-  const valid: readonly VoyagerExpression[] = ['idle', 'happy', 'sleeping', 'gentle', 'strict'];
+  const valid: readonly VoyagerExpression[] = ['idle', 'happy', 'sleeping', 'gentle', 'strict', 'drinking'];
   if (!expr) return 'idle';
   return (valid as readonly string[]).includes(expr) ? (expr as VoyagerExpression) : 'idle';
 }
@@ -52,6 +52,7 @@ export const VOYAGER_EXPRESSION_IMAGES: Record<VoyagerExpression, string> = {
   sleeping: '/assets/character/voyager_sleeping.png',
   gentle: '/assets/character/voyager_gentle.png',
   strict: '/assets/character/voyager_strict.png',
+  drinking: '/assets/character/voyager_drinking.png',
 };
 
 export function resolveAvatarSrc(customUrl?: string | null, expression?: VoyagerExpression): string {
@@ -212,19 +213,31 @@ const HappyOverlay: React.FC = () => (
 );
 
 /**
- * Expression 3: Sleeping - Closed eyes glow & Zzz dream bubble
+ * Expression 3: Sleeping - Celestial Zzz dream constellation (No dark face-covering overlay)
  */
 const SleepingOverlay: React.FC = () => (
   <div data-testid="expression-sleeping" className="absolute inset-0 pointer-events-none z-20 flex items-center justify-center">
-    {/* Cosmic Dream Bubble Shell */}
-    <div className="absolute inset-1 rounded-2xl bg-indigo-950/60 backdrop-blur-[1px] border border-indigo-400/30 shadow-[inset_0_0_12px_rgba(129,140,248,0.4)]" />
     {/* Rising Constellation Zzz */}
     <div className="absolute top-2 right-2 flex flex-col items-end">
       <span className="text-[12px] font-black text-indigo-200 animate-pulse tracking-wider">Zzz</span>
       <span className="text-[9px] font-bold text-sky-300 -mt-1 opacity-75 animate-bounce">z</span>
     </div>
-    {/* Closed Eye Moonlight Glow */}
-    <div className="w-12 h-4 border-b-2 border-indigo-300/80 rounded-b-full opacity-80" />
+    {/* Subtle dream starlets */}
+    <span className="absolute top-3 left-3 text-indigo-300 text-[10px] animate-pulse opacity-60">✦</span>
+    <span className="absolute bottom-4 right-3 text-amber-100 text-[10px] animate-pulse opacity-50">★</span>
+  </div>
+);
+
+/**
+ * Expression 6: Drinking - Water splashes, bubbling sips & joyful blush
+ */
+const DrinkingOverlay: React.FC = () => (
+  <div data-testid="expression-drinking" className="absolute inset-0 pointer-events-none z-20">
+    <span className="absolute bottom-6 right-3 text-sky-400 text-sm animate-bounce">💧</span>
+    <span className="absolute bottom-10 left-3 text-cyan-300 text-xs animate-ping">✧</span>
+    <span className="absolute top-4 right-3 text-yellow-300 text-xs animate-pulse">✦</span>
+    <div className="absolute top-1/2 left-1/4 -translate-y-1/2 w-3 h-1.5 bg-rose-400/40 rounded-full blur-[1px]" />
+    <div className="absolute top-1/2 right-1/4 -translate-y-1/2 w-3 h-1.5 bg-rose-400/40 rounded-full blur-[1px]" />
   </div>
 );
 
@@ -311,6 +324,7 @@ export const VoyagerChibi: React.FC<VoyagerChibiProps> = ({
   const animationClass = useMemo(() => {
     switch (resolvedExpr) {
       case 'happy':
+      case 'drinking':
         return 'animate-bounce';
       case 'sleeping':
         return 'animate-pulse';
@@ -371,6 +385,7 @@ export const VoyagerChibi: React.FC<VoyagerChibiProps> = ({
         {resolvedExpr === 'idle' && <IdleOverlay />}
         {resolvedExpr === 'happy' && <HappyOverlay />}
         {resolvedExpr === 'sleeping' && <SleepingOverlay />}
+        {resolvedExpr === 'drinking' && <DrinkingOverlay />}
         {resolvedExpr === 'gentle' && <GentleOverlay />}
         {resolvedExpr === 'strict' && <StrictOverlay size={size} />}
       </div>

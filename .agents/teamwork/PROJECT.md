@@ -32,6 +32,9 @@
 | 17 | GitHub Actions CI APK Build | `.github/workflows/build-apk.yml` with Node 20, Java 21, Vite build, Capacitor sync, `./gradlew assembleDebug`, upload artifact | M4 | ORIGINAL_REQUEST §R5 |
 | 18 | E2E Test Suite (Tiers 1-4) | Comprehensive opaque-box test suite for all features | E2E-Track | Dual Track |
 | 19 | Final Verification & Coverage Hardening | Pass 100% E2E tests (Tiers 1-4) and Adversarial Coverage Hardening (Tier 5) | M5 | Dual Track |
+| 20 | Gemini AI Character Illustrations | `voyager_drinking.png` and `voyager_sleeping.png` 1000x1000 transparent RGBA assets | M6 | ORIGINAL_REQUEST §Follow-up R1 |
+| 21 | Cosmic Water Planet Component | `CosmicWaterPlanet.tsx` with 0% barren, 1-99% dual-wave ocean, 100% glowing super-habitable world | M6 | ORIGINAL_REQUEST §Follow-up R2 |
+| 22 | Ephemeral Drinking State & Veil-Free Bedtime | 2.5s drinking animation on water log, dark veil removed from `SleepingOverlay`, partitioned mood hierarchy | M6 | ORIGINAL_REQUEST §Follow-up R1, R3 |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
@@ -41,7 +44,8 @@
 | M2 | Audio, Persistence & Voyager Chibi | Web Audio synthesizer, dual-layer storage, notification scheduler, `VoyagerChibi.tsx` with 5 states and custom upload | M1 | DONE |
 | M3 | 5 Main Tabs & Card-UI System | Navigation bar, TodayTab (wave tank, quick log, confetti), ReminderTab, JournalTab, StatsTab, ProfileTab | M1, M2 | DONE |
 | M4 | Capacitor Android & GitHub Actions CI | `capacitor.config.ts`, `android/` setup, permissions in AndroidManifest.xml, `.github/workflows/build-apk.yml` | M1, M2, M3 | DONE |
-| M5 | Final Milestone: 100% E2E Pass & Hardening | Phase 1: Pass 100% E2E tests (Tiers 1-4); Phase 2: Adversarial coverage hardening (Tier 5) | M1, M2, M3, M4, E2E | IN_PROGRESS |
+| M5 | Final Milestone: 100% E2E Pass & Hardening | Phase 1: Pass 100% E2E tests (Tiers 1-4); Phase 2: Adversarial coverage hardening (Tier 5) | M1, M2, M3, M4, E2E | DONE |
+| M6 | Cosmic Water Planet & Enhanced Voyager Visuals | Gemini character assets, veil-free bedtime, CosmicWaterPlanet 0-100% fill, drinking interaction | M1, M2, M3, M4, M5 | DONE |
 
 ## Interface Contracts
 

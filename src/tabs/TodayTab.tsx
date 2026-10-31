@@ -1,7 +1,8 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Flame, Plus, Check, Droplets, X } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import WaveTank from '../components/WaveTank';
+import CosmicWaterPlanet from '../components/CosmicWaterPlanet';
+import { VoyagerExpression } from '../components/VoyagerChibi';
 import {
   WeatherData,
   UserProfile,
@@ -86,6 +87,16 @@ export const TodayTab: React.FC<TodayTabProps> = ({
   // Chibi speech text
   const [speechText, setSpeechText] = useState<string | null>(null);
 
+  // Transient drinking state (2.5s)
+  const [isDrinking, setIsDrinking] = useState(false);
+  const drinkingTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (drinkingTimerRef.current) clearTimeout(drinkingTimerRef.current);
+    };
+  }, []);
+
   // Sync prop changes
   useEffect(() => {
     if (propCurrentMl !== undefined) setConsumedMl(propCurrentMl);
@@ -156,6 +167,11 @@ export const TodayTab: React.FC<TodayTabProps> = ({
         setSpeechText('Thuyền trưởng thật tuyệt vời! Mục tiêu đã hoàn thành! 🎉');
       } else {
         setSpeechText(`+${amount}ml đã được ghi nhận vào nhật ký ngân hà! ✨`);
+        setIsDrinking(true);
+        if (drinkingTimerRef.current) clearTimeout(drinkingTimerRef.current);
+        drinkingTimerRef.current = setTimeout(() => {
+          setIsDrinking(false);
+        }, 2500);
       }
 
       // Persist to storage
@@ -206,6 +222,22 @@ export const TodayTab: React.FC<TodayTabProps> = ({
     setModalError(null);
     setIsModalOpen(false);
   };
+
+  // Hierarchical Chibi mood resolution:
+  // Quiet hours: isDrinking ? 'drinking' : 'sleeping'
+  // Daytime: consumedMl >= goalMl ? 'happy' : isDrinking ? 'drinking' : 'idle'
+  const resolvedChibiMood = useMemo<VoyagerExpression>(() => {
+    if (propQuiet) {
+      return isDrinking ? 'drinking' : 'sleeping';
+    }
+    if (consumedMl >= goalMl) {
+      return 'happy';
+    }
+    if (isDrinking) {
+      return 'drinking';
+    }
+    return 'idle';
+  }, [propQuiet, isDrinking, consumedMl, goalMl]);
 
   return (
     <div
@@ -286,12 +318,13 @@ export const TodayTab: React.FC<TodayTabProps> = ({
       </section>
 
       {/* ==================================================================== */}
-      {/* Galaxy Wave Tank with Voyager Chibi Bobbing Atop Waves              */}
+      {/* Cosmic Water Planet with Voyager Chibi Floating Atop Rising Ocean   */}
       {/* ==================================================================== */}
-      <WaveTank
+      <CosmicWaterPlanet
         currentMl={consumedMl}
         goalMl={goalMl}
         customImageUrl={propAvatar}
+        voyagerExpression={resolvedChibiMood}
         isQuietNow={propQuiet}
         showSpeechBubble={Boolean(speechText)}
         speechText={speechText || undefined}
