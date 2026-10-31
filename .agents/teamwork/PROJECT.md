@@ -35,6 +35,11 @@
 | 20 | Gemini AI Character Illustrations | `voyager_drinking.png` and `voyager_sleeping.png` 1000x1000 transparent RGBA assets | M6 | ORIGINAL_REQUEST §Follow-up R1 |
 | 21 | Cosmic Water Planet Component | `CosmicWaterPlanet.tsx` with 0% barren, 1-99% dual-wave ocean, 100% glowing super-habitable world | M6 | ORIGINAL_REQUEST §Follow-up R2 |
 | 22 | Ephemeral Drinking State & Veil-Free Bedtime | 2.5s drinking animation on water log, dark veil removed from `SleepingOverlay`, partitioned mood hierarchy | M6 | ORIGINAL_REQUEST §Follow-up R1, R3 |
+| 23 | Authentic Voyager (Reverse: 1999) Audio Assets | Real `.mp3` files (greeting, battle, violin melody) from Reverse: 1999 hero3048 `yuanlv` in `public/assets/audio/` | M7 | ORIGINAL_REQUEST §R2 |
+| 24 | Audio Engine Real-Asset Playback & Preview | `previewVoyagerTrack`, `startAlarmPlayback`, `stopAlarmPlayback`, `isAlarmPlaying`, `_setAudioConstructorForTesting` | M7 | ORIGINAL_REQUEST §R2 |
+| 25 | Alarm Clock State & Dual-Layer Storage | `AlarmClockConfig` interface, `STORAGE_KEYS.ALARM_CLOCK`, sync with localStorage & Capacitor Preferences | M7 | ORIGINAL_REQUEST §R1 |
+| 26 | Alarm Clock UI & Ringing Modal | Dedicated Card in `ReminderTab.tsx` (time, presets, toggle, sound preview) + `AlarmRingingModal.tsx` in `App.tsx` (snooze, dismiss) | M7 | ORIGINAL_REQUEST §R1 |
+| 27 | Automated Alarm Unit & Audio Test Suites | Comprehensive unit tests for alarm time logic, snooze calculation, audio triggering, and component events in `npm test` | M7 | ORIGINAL_REQUEST §R3 |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
@@ -46,6 +51,7 @@
 | M4 | Capacitor Android & GitHub Actions CI | `capacitor.config.ts`, `android/` setup, permissions in AndroidManifest.xml, `.github/workflows/build-apk.yml` | M1, M2, M3 | DONE |
 | M5 | Final Milestone: 100% E2E Pass & Hardening | Phase 1: Pass 100% E2E tests (Tiers 1-4); Phase 2: Adversarial coverage hardening (Tier 5) | M1, M2, M3, M4, E2E | DONE |
 | M6 | Cosmic Water Planet & Enhanced Voyager Visuals | Gemini character assets, veil-free bedtime, CosmicWaterPlanet 0-100% fill, drinking interaction | M1, M2, M3, M4, M5 | DONE |
+| M7 | Independent Alarm Clock & Voyager Audio Integration | Authentic Reverse: 1999 Voyager audio (.mp3), alarm controls in ReminderTab, AlarmRingingModal in App.tsx, unit test suites | M1, M2, M3, M4, M5, M6 | IN_PROGRESS |
 
 ## Interface Contracts
 
@@ -84,14 +90,41 @@ export function calculateDailyWaterGoal(
 export function fetchWeatherData(lat?: number, lon?: number): Promise<WeatherData>;
 ```
 
-### AudioEngine
+### AudioEngine (M2 + M7 Extended)
 ```typescript
-export type SoundType = 'ripple' | 'violin' | 'bubble';
-export function playCosmicSound(type: SoundType): void;
+export type ProceduralSoundType = 'ripple' | 'violin' | 'bubble';
+export type VoyagerAudioTrackId = 'voyager_violin' | 'voyager_greeting' | 'voyager_battle';
+export type SoundThemeId = ProceduralSoundType | VoyagerAudioTrackId | 'chime';
+
+export interface VoyagerAudioTrackInfo {
+  id: VoyagerAudioTrackId;
+  name: string;
+  description: string;
+  src: string;
+}
+
+export function playCosmicSound(type: SoundThemeId, options?: SoundOptions): Promise<void>;
+export function previewVoyagerTrack(trackId: VoyagerAudioTrackId | ProceduralSoundType, onEnded?: () => void): HTMLAudioElement | null;
+export function stopPreviewAudio(): void;
+export function startAlarmPlayback(trackId: VoyagerAudioTrackId | ProceduralSoundType): void;
+export function stopAlarmPlayback(): void;
+export function isAlarmPlaying(): boolean;
+export function _setAudioConstructorForTesting(ctor: typeof Audio | null): void;
 ```
 
-### StorageEngine
+### AlarmClock & StorageEngine (M7)
 ```typescript
+export interface AlarmClockConfig {
+  isEnabled: boolean;
+  time: string; // "HH:mm"
+  selectedSound: string; // VoyagerAudioTrackId | ProceduralSoundType
+  snoozeMinutes: number; // 5 | 10 | 15
+  snoozeUntil: number | null; // Epoch ms timestamp
+  lastDismissedKey: string | null; // "YYYY-MM-DD HH:mm"
+}
+
+export function loadAlarmConfig(): Promise<AlarmClockConfig>;
+export function saveAlarmConfig(config: AlarmClockConfig): Promise<void>;
 export function saveAppState<T>(key: string, data: T): Promise<void>;
 export function loadAppState<T>(key: string, fallback: T): Promise<T>;
 export function exportDataAsJson(): string;
@@ -108,31 +141,40 @@ d:/uống nước/
 │   └── app/
 │       └── src/main/AndroidManifest.xml
 ├── public/
-│   └── assets/                # Voyager character images and icons
+│   └── assets/
+│       ├── audio/             # Real Voyager audio assets (Reverse: 1999)
+│       │   ├── voyager_greeting.mp3
+│       │   ├── voyager_battle.mp3
+│       │   └── voyager_violin.mp3
+│       └── character/         # Voyager character images
 ├── src/
 │   ├── components/
+│   │   ├── AlarmRingingModal.tsx # Fullscreen/overlay active alarm alert
 │   │   ├── Card.tsx
+│   │   ├── CosmicWaterPlanet.tsx
 │   │   ├── Modal.tsx
 │   │   ├── NavigationBar.tsx
 │   │   ├── VoyagerChibi.tsx
 │   │   └── WaveTank.tsx
 │   ├── tabs/
 │   │   ├── TodayTab.tsx
-│   │   ├── ReminderTab.tsx
+│   │   ├── ReminderTab.tsx    # Contains Voyager Alarm Clock section
 │   │   ├── JournalTab.tsx
 │   │   ├── StatsTab.tsx
 │   │   └── ProfileTab.tsx
 │   ├── utils/
-│   │   ├── audioEngine.ts
+│   │   ├── audioEngine.ts     # Procedural + real audio player
 │   │   ├── hydrationEngine.ts
 │   │   ├── notificationEngine.ts
-│   │   └── storageEngine.ts
-│   ├── App.tsx
+│   │   └── storageEngine.ts   # Dual-layer storage + AlarmClockConfig
+│   ├── App.tsx                # App root with 1s alarm ticker & AlarmRingingModal
 │   ├── index.css
 │   └── main.tsx
 ├── tests/
 │   ├── e2e/                   # E2E test suite (Tiers 1-4)
 │   └── unit/
+│       ├── alarmClock.test.ts # Alarm logic & snooze tests
+│       ├── alarmAudio.test.tsx # UI & audio mock trigger tests
 │       └── hydrationEngine.test.ts
 ├── capacitor.config.ts
 ├── package.json

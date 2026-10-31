@@ -10,7 +10,10 @@ import {
   Play,
   Check,
   ShieldCheck,
-  AlertCircle
+  AlertCircle,
+  AlarmClock,
+  Sparkles,
+  Square
 } from 'lucide-react';
 import VoyagerChibi from '../components/VoyagerChibi';
 import {
@@ -20,8 +23,20 @@ import {
   ScheduleRemindersParams,
   ReminderMode
 } from '../utils/notificationEngine';
-import { playCosmicSound, playQuickTap, SoundType } from '../utils/audioEngine';
-import type { AppSettings } from '../utils/storageEngine';
+import {
+  playCosmicSound,
+  playQuickTap,
+  SoundType,
+  previewVoyagerTrack,
+  stopPreviewAudio
+} from '../utils/audioEngine';
+import {
+  AppSettings,
+  AlarmClockConfig,
+  DEFAULT_ALARM_CONFIG,
+  loadAlarmConfig,
+  saveAlarmConfig
+} from '../utils/storageEngine';
 import type { UserProfile } from '../types';
 
 export interface ReminderTabProps {
@@ -29,6 +44,8 @@ export interface ReminderTabProps {
   profile?: UserProfile;
   targetMl: number;
   consumedMl: number;
+  alarmConfig?: AlarmClockConfig;
+  onUpdateAlarmConfig?: (config: Partial<AlarmClockConfig>) => void | Promise<void>;
   onUpdateSettings: (updated: Partial<AppSettings>) => void | Promise<void>;
   onScheduleReminders?: (params: ScheduleRemindersParams) => Promise<Date | null>;
   className?: string;
@@ -38,6 +55,8 @@ export const ReminderTab: React.FC<ReminderTabProps> = ({
   settings,
   targetMl,
   consumedMl,
+  alarmConfig,
+  onUpdateAlarmConfig,
   onUpdateSettings,
   onScheduleReminders,
   className = '',
@@ -45,6 +64,47 @@ export const ReminderTab: React.FC<ReminderTabProps> = ({
   const [nextReminderDate, setNextReminderDate] = useState<Date | null>(null);
   const [countdownText, setCountdownText] = useState<string>('Đang tính toán...');
   const [previewingSound, setPreviewingSound] = useState<SoundType | null>(null);
+  const [localAlarm, setLocalAlarm] = useState<AlarmClockConfig>(alarmConfig || DEFAULT_ALARM_CONFIG);
+  const [previewingAlarmSound, setPreviewingAlarmSound] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (alarmConfig) {
+      setLocalAlarm(alarmConfig);
+    } else {
+      loadAlarmConfig().then((cfg) => {
+        if (cfg) setLocalAlarm(cfg);
+      });
+    }
+  }, [alarmConfig]);
+
+  const handleUpdateAlarm = async (patch: Partial<AlarmClockConfig>) => {
+    playQuickTap();
+    const updated = { ...localAlarm, ...patch };
+    setLocalAlarm(updated);
+    if (onUpdateAlarmConfig) {
+      await onUpdateAlarmConfig(patch);
+    } else {
+      await saveAlarmConfig(updated);
+    }
+  };
+
+  const handleToggleAlarm = async () => {
+    await handleUpdateAlarm({ isEnabled: !localAlarm.isEnabled });
+  };
+
+  const handlePreviewAlarmTrack = (e: React.MouseEvent, trackId: string) => {
+    e.stopPropagation();
+    if (previewingAlarmSound === trackId) {
+      stopPreviewAudio();
+      setPreviewingAlarmSound(null);
+    } else {
+      stopPreviewAudio();
+      setPreviewingAlarmSound(trackId);
+      previewVoyagerTrack(trackId, () => {
+        setPreviewingAlarmSound(null);
+      });
+    }
+  };
 
   // Wake and Sleep time
   const wakeTime = settings.wakeTime || '07:00';
@@ -454,6 +514,195 @@ export const ReminderTab: React.FC<ReminderTabProps> = ({
             Thông báo tự động khóa trong khung Giờ yên lặng ({sleepTime} - {wakeTime}) và
             sẽ hoãn đến {wakeTime} sáng để bạn có một giấc ngủ an lành.
           </span>
+        </div>
+      </div>
+
+      {/* Card: Đồng hồ báo thức Voyager (Independent Alarm Clock) */}
+      <div className="bg-slate-900/90 border-2 border-amber-400/80 rounded-2xl p-4 shadow-[0_4px_0_#78350f] space-y-4">
+        {/* Header with Title & Master Toggle */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/20 border-2 border-amber-400 flex items-center justify-center text-amber-400 shadow-sm">
+              <AlarmClock className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-amber-300 flex items-center gap-1.5">
+                Đồng hồ báo thức Voyager
+                <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                  Độc lập
+                </span>
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                Chuông reo chính xác theo giờ hẹn với voice & violin Reverse: 1999
+              </p>
+            </div>
+          </div>
+
+          {/* Master Toggle */}
+          <button
+            type="button"
+            data-testid="alarm-master-toggle"
+            role="switch"
+            aria-checked={localAlarm.isEnabled}
+            onClick={handleToggleAlarm}
+            className={`w-12 h-7 rounded-full p-1 transition-colors duration-200 ease-in-out border-2 relative ${
+              localAlarm.isEnabled
+                ? 'bg-amber-500 border-amber-300'
+                : 'bg-slate-800 border-slate-600'
+            }`}
+          >
+            <div
+              className={`w-4 h-4 rounded-full bg-white shadow-md transform transition-transform duration-200 ease-in-out ${
+                localAlarm.isEnabled ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </div>
+
+        {/* Time Input & Presets */}
+        <div className="space-y-2 bg-slate-950/60 p-3 rounded-xl border border-amber-500/20">
+          <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+            <span className="flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-amber-400" />
+              Giờ hẹn báo thức:
+            </span>
+            <span className="text-[11px] font-mono text-amber-300">
+              {localAlarm.isEnabled ? 'Sẽ reo vào lúc ' + localAlarm.time : 'Đang tắt'}
+            </span>
+          </label>
+          <div className="flex items-center gap-3">
+            <input
+              type="time"
+              data-testid="alarm-time-input"
+              value={localAlarm.time}
+              onChange={(e) => handleUpdateAlarm({ time: e.target.value })}
+              className="bg-slate-900 border-2 border-amber-400/50 focus:border-amber-400 rounded-xl px-3 py-2 text-xl font-black font-mono text-amber-300 outline-none w-36 text-center"
+            />
+            {/* Presets */}
+            <div className="flex flex-wrap gap-1.5 flex-1">
+              {['06:00', '07:00', '07:30', '08:00'].map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => handleUpdateAlarm({ time: preset })}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition ${
+                    localAlarm.time === preset
+                      ? 'bg-amber-500 text-slate-950 border-amber-300'
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:border-amber-400/40'
+                  }`}
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Snooze Setting */}
+        <div className="flex items-center justify-between bg-slate-950/40 p-2.5 rounded-xl border border-slate-800 text-xs">
+          <span className="text-slate-300 flex items-center gap-1.5">
+            <Moon className="w-3.5 h-3.5 text-amber-400" />
+            Thời gian hoãn (Snooze):
+          </span>
+          <div className="flex gap-1.5">
+            {[5, 10, 15].map((mins) => (
+              <button
+                key={mins}
+                type="button"
+                onClick={() => handleUpdateAlarm({ snoozeMinutes: mins })}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition ${
+                  localAlarm.snoozeMinutes === mins
+                    ? 'bg-amber-400/20 text-amber-300 border-amber-400'
+                    : 'bg-slate-800 text-slate-400 border-slate-700 hover:border-slate-500'
+                }`}
+              >
+                {mins} phút
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Voyager Sound Selection & Audition */}
+        <div className="space-y-2">
+          <div className="text-xs font-bold text-slate-300 flex items-center justify-between">
+            <span className="flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              Âm báo Voyager (Reverse: 1999):
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2">
+            {[
+              {
+                id: 'voyager_violin',
+                name: 'Violin Tinh cầu (Reverse: 1999)',
+                desc: 'Khúc độc tấu vĩ cầm ngân vang trong vũ trụ',
+              },
+              {
+                id: 'voyager_greeting',
+                name: 'Lời chào Tinh cầu (Voice sảnh)',
+                desc: 'Giọng nói dịu dàng chào buổi sáng của Voyager',
+              },
+              {
+                id: 'voyager_battle',
+                name: 'Khúc dạo đầu Vũ trụ (Voice trận)',
+                desc: 'Giai điệu và giọng nói hòa tấu bước vào trận chiến',
+              },
+              {
+                id: 'bubble',
+                name: 'Chuông bong bóng (Dự phòng)',
+                desc: 'Âm tổng hợp chuông pha lê lấp lánh réo rắt',
+              },
+            ].map((sound) => {
+              const isSelected = localAlarm.selectedSound === sound.id;
+              const isPlaying = previewingAlarmSound === sound.id;
+
+              return (
+                <div
+                  key={sound.id}
+                  onClick={() => handleUpdateAlarm({ selectedSound: sound.id })}
+                  className={`p-3 rounded-xl border-2 transition-all flex items-center justify-between cursor-pointer ${
+                    isSelected
+                      ? 'bg-amber-950/20 border-amber-400 shadow-sm'
+                      : 'bg-slate-900/60 border-slate-800 hover:border-slate-600'
+                  }`}
+                >
+                  <div>
+                    <div className="text-sm font-semibold text-white flex items-center gap-1.5">
+                      {sound.name}
+                      {isSelected && (
+                        <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-400">{sound.desc}</div>
+                  </div>
+
+                  <button
+                    type="button"
+                    data-testid="alarm-sound-preview-btn"
+                    onClick={(e) => handlePreviewAlarmTrack(e, sound.id)}
+                    className={`px-3 py-1.5 rounded-lg border-2 text-xs font-bold flex items-center gap-1.5 active:translate-y-0.5 transition ${
+                      isPlaying
+                        ? 'bg-amber-400 text-slate-950 border-amber-300'
+                        : 'bg-slate-800 text-amber-300 border-slate-700 hover:bg-slate-700'
+                    }`}
+                  >
+                    {isPlaying ? (
+                      <>
+                        <Square className="w-3 h-3 fill-current" />
+                        Dừng
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-3 h-3 fill-current" />
+                        Nghe thử
+                      </>
+                    )}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 

@@ -5,6 +5,7 @@ import ReminderTab from './tabs/ReminderTab';
 import JournalTab from './tabs/JournalTab';
 import StatsTab from './tabs/StatsTab';
 import ProfileTab from './tabs/ProfileTab';
+import AlarmRingingModal from './components/AlarmRingingModal';
 
 import type { UserProfile, WeatherData } from './types';
 import {
@@ -21,12 +22,20 @@ import {
   AppSettings,
   DailyLogsMap,
   DailyHydrationRecord,
-  HydrationEntry
+  HydrationEntry,
+  AlarmClockConfig,
+  DEFAULT_ALARM_CONFIG,
+  loadAlarmConfig,
+  saveAlarmConfig
 } from './utils/storageEngine';
 import {
   playQuickTap,
   playGoalCelebrationFanfare,
-  setAudioMuted
+  setAudioMuted,
+  startAlarmPlayback,
+  stopAlarmPlayback,
+  VOYAGER_AUDIO_TRACKS,
+  VoyagerAudioTrackId
 } from './utils/audioEngine';
 import { isInQuietHours } from './utils/notificationEngine';
 import confetti from 'canvas-confetti';
@@ -46,6 +55,10 @@ export default function App() {
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [isWeatherLoading, setIsWeatherLoading] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<TabId>('today');
+
+  // 4. Milestone 7: Independent Alarm Clock State
+  const [alarmConfig, setAlarmConfig] = useState<AlarmClockConfig>(DEFAULT_ALARM_CONFIG);
+  const [isAlarmRinging, setIsAlarmRinging] = useState<boolean>(false);
 
 
   // Today date key "YYYY-MM-DD"
@@ -89,7 +102,7 @@ export default function App() {
         await reconcileStorage();
 
         // Step 2: Hydrate state from dual-layer persistence
-        const [savedProfile, savedSettings, savedLogs, savedStreak, savedRecordStreak, savedAvatar] =
+        const [savedProfile, savedSettings, savedLogs, savedStreak, savedRecordStreak, savedAvatar, savedAlarm] =
           await Promise.all([
             loadAppState<UserProfile>(STORAGE_KEYS.USER_PROFILE, DEFAULT_USER_PROFILE),
             loadAppState<AppSettings>(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS),
@@ -97,6 +110,7 @@ export default function App() {
             loadAppState<number>(STORAGE_KEYS.STREAK, 1),
             loadAppState<number>('voyager_record_streak', 1),
             loadAppState<string | null>('voyager_custom_avatar', null),
+            loadAlarmConfig(),
           ]);
 
         setProfile(savedProfile);
@@ -106,6 +120,7 @@ export default function App() {
         setRecordStreak(savedRecordStreak);
         setCustomAvatar(savedAvatar);
         setAudioMuted(!savedProfile.soundEnabled);
+        if (savedAlarm) setAlarmConfig(savedAlarm);
 
         // Step 3: Fetch weather with GPS and fallback
         setIsWeatherLoading(true);
@@ -164,6 +179,78 @@ export default function App() {
       setIsWeatherLoading(false);
     }
   }, []);
+
+  const handleUpdateAlarmConfig = useCallback(async (patch: Partial<AlarmClockConfig>) => {
+    setAlarmConfig((prev) => {
+      const updated = { ...prev, ...patch };
+      saveAlarmConfig(updated);
+      return updated;
+    });
+  }, []);
+
+  // 1-second interval ticker for independent alarm triggering
+  useEffect(() => {
+    const checkAlarm = () => {
+      if (!alarmConfig.isEnabled || isAlarmRinging) return;
+
+      const now = new Date();
+      const currentH = now.getHours();
+      const currentM = now.getMinutes();
+      const currentMinuteKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(currentH).padStart(2, '0')}:${String(currentM).padStart(2, '0')}`;
+
+      const [alarmHStr, alarmMStr] = (alarmConfig.time || '07:30').split(':');
+      const alarmH = parseInt(alarmHStr, 10);
+      const alarmM = parseInt(alarmMStr, 10);
+
+      const isScheduledTimeMatch = currentH === alarmH && currentM === alarmM;
+      const isSnoozeMatch = alarmConfig.snoozeUntil !== null && now.getTime() >= alarmConfig.snoozeUntil;
+
+      if (isScheduledTimeMatch || isSnoozeMatch) {
+        if (alarmConfig.lastDismissedKey !== currentMinuteKey) {
+          setIsAlarmRinging(true);
+          startAlarmPlayback(alarmConfig.selectedSound || 'voyager_violin');
+        }
+      }
+    };
+
+    const timer = setInterval(checkAlarm, 1000);
+    return () => clearInterval(timer);
+  }, [alarmConfig, isAlarmRinging]);
+
+  const handleDismissAlarm = useCallback(() => {
+    stopAlarmPlayback();
+    setIsAlarmRinging(false);
+    const now = new Date();
+    const currentMinuteKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    setAlarmConfig((prev) => {
+      const updated: AlarmClockConfig = {
+        ...prev,
+        snoozeUntil: null,
+        lastDismissedKey: currentMinuteKey,
+      };
+      saveAlarmConfig(updated);
+      return updated;
+    });
+  }, []);
+
+  const handleSnoozeAlarm = useCallback(() => {
+    stopAlarmPlayback();
+    setIsAlarmRinging(false);
+    const now = new Date();
+    const currentMinuteKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const snoozeUntil = Date.now() + (alarmConfig.snoozeMinutes || 5) * 60 * 1000;
+
+    setAlarmConfig((prev) => {
+      const updated: AlarmClockConfig = {
+        ...prev,
+        snoozeUntil,
+        lastDismissedKey: currentMinuteKey,
+      };
+      saveAlarmConfig(updated);
+      return updated;
+    });
+  }, [alarmConfig.snoozeMinutes]);
 
   // Water intake logging
   const handleLogIntake = useCallback(
@@ -295,6 +382,8 @@ export default function App() {
             profile={profile}
             targetMl={todayTargetMl}
             consumedMl={todayRecord.consumedMl}
+            alarmConfig={alarmConfig}
+            onUpdateAlarmConfig={handleUpdateAlarmConfig}
             onUpdateSettings={handleUpdateSettings}
           />
         )}
@@ -338,6 +427,20 @@ export default function App() {
 
         {/* Fixed Bottom Navigation Bar */}
         <NavigationBar activeTab={activeTab} onTabChange={setActiveTab} />
+
+        {/* Active Ringing Alarm Modal */}
+        <AlarmRingingModal
+          isOpen={isAlarmRinging}
+          alarmTime={alarmConfig.time}
+          snoozeMinutes={alarmConfig.snoozeMinutes}
+          soundName={
+            alarmConfig.selectedSound in VOYAGER_AUDIO_TRACKS
+              ? VOYAGER_AUDIO_TRACKS[alarmConfig.selectedSound as VoyagerAudioTrackId].name
+              : 'Violin Tinh cầu'
+          }
+          onDismiss={handleDismissAlarm}
+          onSnooze={handleSnoozeAlarm}
+        />
       </main>
     </div>
   );

@@ -10,8 +10,38 @@
 // Types & Constants
 // ============================================================================
 
-export type SoundType = 'ripple' | 'violin' | 'bubble';
-export type SoundThemeId = SoundType | 'chime';
+export type ProceduralSoundType = 'ripple' | 'violin' | 'bubble';
+export type SoundType = ProceduralSoundType;
+export type VoyagerAudioTrackId = 'voyager_violin' | 'voyager_greeting' | 'voyager_battle';
+export type SoundThemeId = ProceduralSoundType | VoyagerAudioTrackId | 'chime';
+
+export interface VoyagerAudioTrackInfo {
+  id: VoyagerAudioTrackId;
+  name: string;
+  description: string;
+  src: string;
+}
+
+export const VOYAGER_AUDIO_TRACKS: Record<VoyagerAudioTrackId, VoyagerAudioTrackInfo> = {
+  voyager_violin: {
+    id: 'voyager_violin',
+    name: 'Violin Tinh cầu (Voyager Theme)',
+    description: 'Tiếng đàn vĩ cầm Reverse: 1999 ngân nga trong vũ trụ',
+    src: '/assets/audio/voyager_violin.mp3',
+  },
+  voyager_greeting: {
+    id: 'voyager_greeting',
+    name: 'Lời chào Tinh cầu (Voice nền)',
+    description: 'Giọng nói dịu dàng chào buổi sáng của Voyager',
+    src: '/assets/audio/voyager_greeting.mp3',
+  },
+  voyager_battle: {
+    id: 'voyager_battle',
+    name: 'Khúc dạo đầu Vũ trụ (Voice vào trận)',
+    description: 'Giai điệu và giọng nói bước vào trận chiến ngân hà',
+    src: '/assets/audio/voyager_battle.mp3',
+  },
+};
 
 export interface SoundOptions {
   volume?: number;       // Scaled 0.0 to 1.0 (defaults to 1.0)
@@ -31,6 +61,10 @@ export const MASTER_HEADROOM_GAIN = 0.6;
 // Internal engine singleton state
 let audioCtx: AudioContext | null = null;
 let isMuted: boolean = false;
+let activeAlarmAudio: HTMLAudioElement | null = null;
+let activePreviewAudio: HTMLAudioElement | null = null;
+let proceduralAlarmInterval: ReturnType<typeof setInterval> | null = null;
+let customAudioConstructor: typeof Audio | null = null;
 
 // ============================================================================
 // Lifecycle & Context Management
@@ -385,6 +419,11 @@ export async function playCosmicSound(
 ): Promise<void> {
   if (isMuted) return;
 
+  if (theme in VOYAGER_AUDIO_TRACKS) {
+    previewVoyagerTrack(theme as VoyagerAudioTrackId);
+    return;
+  }
+
   const ctx = getAudioContext();
   if (!ctx) return;
 
@@ -396,7 +435,7 @@ export async function playCosmicSound(
   const master = createMasterBus(ctx, vol);
 
   // Normalize 'chime' alias to 'bubble'
-  const normalizedTheme: SoundType = theme === 'chime' ? 'bubble' : theme;
+  const normalizedTheme: ProceduralSoundType = theme === 'chime' ? 'bubble' : (theme as ProceduralSoundType);
 
   switch (normalizedTheme) {
     case 'ripple':
@@ -487,3 +526,156 @@ export async function playGoalCelebrationFanfare(): Promise<void> {
     osc.stop(noteTime + 0.650);
   });
 }
+
+// ============================================================================
+// Real Audio Asset & Alarm Clock Engine (Milestone 7)
+// ============================================================================
+
+/**
+ * Resolves standard HTMLAudioElement constructor across browser, Node, and test stubs.
+ */
+export function getAudioConstructor(): typeof Audio | null {
+  if (customAudioConstructor) return customAudioConstructor;
+  if (typeof window !== 'undefined' && window.Audio) return window.Audio;
+  if (typeof globalThis !== 'undefined' && (globalThis as any).Audio) return (globalThis as any).Audio;
+  return null;
+}
+
+/**
+ * Injects custom Audio constructor for test runners (e.g. Node/Vitest).
+ */
+export function _setAudioConstructorForTesting(ctor: typeof Audio | null): void {
+  customAudioConstructor = ctor;
+}
+
+/**
+ * Previews an authentic Voyager audio track or procedural sound effect (one-shot).
+ */
+export function previewVoyagerTrack(
+  trackId: VoyagerAudioTrackId | ProceduralSoundType | string,
+  onEnded?: () => void
+): HTMLAudioElement | null {
+  stopPreviewAudio();
+  if (isMuted) return null;
+
+  if (trackId === 'ripple' || trackId === 'violin' || trackId === 'bubble' || trackId === 'chime') {
+    playCosmicSound(trackId as SoundThemeId);
+    if (onEnded) setTimeout(onEnded, 1200);
+    return null;
+  }
+
+  const track = VOYAGER_AUDIO_TRACKS[trackId as VoyagerAudioTrackId];
+  if (!track) {
+    playCosmicSound('violin');
+    if (onEnded) setTimeout(onEnded, 1200);
+    return null;
+  }
+
+  const AudioCtor = getAudioConstructor();
+  if (!AudioCtor) {
+    playCosmicSound('violin');
+    if (onEnded) setTimeout(onEnded, 1200);
+    return null;
+  }
+
+  try {
+    const audio = new AudioCtor(track.src);
+    audio.volume = Math.max(0, Math.min(1.0, MASTER_HEADROOM_GAIN));
+    audio.loop = false;
+    audio.onended = () => {
+      if (activePreviewAudio === audio) activePreviewAudio = null;
+      if (onEnded) onEnded();
+    };
+    activePreviewAudio = audio;
+    audio.play().catch((err) => {
+      console.warn('[AudioEngine] Preview playback prevented:', err);
+    });
+    return audio;
+  } catch (err) {
+    console.warn('[AudioEngine] Failed to initialize Audio preview:', err);
+    playCosmicSound('violin');
+    if (onEnded) setTimeout(onEnded, 1200);
+    return null;
+  }
+}
+
+/**
+ * Halts any active one-shot sound preview.
+ */
+export function stopPreviewAudio(): void {
+  if (activePreviewAudio) {
+    try {
+      activePreviewAudio.pause();
+      activePreviewAudio.currentTime = 0;
+    } catch {}
+    activePreviewAudio = null;
+  }
+}
+
+/**
+ * Starts continuous looping alarm playback until explicitly stopped.
+ */
+export function startAlarmPlayback(trackId: VoyagerAudioTrackId | ProceduralSoundType | string): void {
+  stopAlarmPlayback();
+  if (isMuted) return;
+
+  if (trackId === 'ripple' || trackId === 'violin' || trackId === 'bubble' || trackId === 'chime') {
+    playCosmicSound(trackId as SoundThemeId);
+    proceduralAlarmInterval = setInterval(() => {
+      playCosmicSound(trackId as SoundThemeId);
+    }, 2000);
+    return;
+  }
+
+  const track = VOYAGER_AUDIO_TRACKS[trackId as VoyagerAudioTrackId];
+  const AudioCtor = getAudioConstructor();
+
+  if (!track || !AudioCtor) {
+    playCosmicSound('violin');
+    proceduralAlarmInterval = setInterval(() => {
+      playCosmicSound('violin');
+    }, 2000);
+    return;
+  }
+
+  try {
+    const audio = new AudioCtor(track.src);
+    audio.volume = Math.max(0, Math.min(1.0, MASTER_HEADROOM_GAIN));
+    audio.loop = true;
+    activeAlarmAudio = audio;
+    audio.play().catch((err) => {
+      console.warn('[AudioEngine] Alarm playback prevented:', err);
+    });
+  } catch (err) {
+    console.warn('[AudioEngine] Failed to initialize alarm audio:', err);
+    playCosmicSound('violin');
+    proceduralAlarmInterval = setInterval(() => {
+      playCosmicSound('violin');
+    }, 2000);
+  }
+}
+
+/**
+ * Stops any active looping alarm playback.
+ */
+export function stopAlarmPlayback(): void {
+  if (activeAlarmAudio) {
+    try {
+      activeAlarmAudio.pause();
+      activeAlarmAudio.currentTime = 0;
+    } catch {}
+    activeAlarmAudio = null;
+  }
+  if (proceduralAlarmInterval) {
+    clearInterval(proceduralAlarmInterval);
+    proceduralAlarmInterval = null;
+  }
+}
+
+/**
+ * Returns true if an alarm is currently playing (audio element or procedural interval).
+ */
+export function isAlarmPlaying(): boolean {
+  return activeAlarmAudio !== null || proceduralAlarmInterval !== null;
+}
+

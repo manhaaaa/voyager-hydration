@@ -21,6 +21,7 @@ export const STORAGE_KEYS = {
   WEATHER_CACHE: 'voyager_weather_cache',
   STREAK: 'voyager_streak',
   LAST_EXPORT: 'voyager_last_export',
+  ALARM_CLOCK: 'voyager_alarm_clock',
 } as const;
 
 export type StorageKey = typeof STORAGE_KEYS[keyof typeof STORAGE_KEYS];
@@ -96,6 +97,24 @@ export const DEFAULT_SETTINGS: AppSettings = {
   selectedCompanion: 'Voyager Nguyên Bản',
 };
 
+export interface AlarmClockConfig {
+  isEnabled: boolean;
+  time: string;                      // "HH:mm", e.g. "07:30"
+  selectedSound: string;             // VoyagerAudioTrackId | ProceduralSoundType
+  snoozeMinutes: number;             // 5 | 10 | 15
+  snoozeUntil: number | null;        // Epoch millisecond timestamp or null
+  lastDismissedKey: string | null;   // e.g. "2026-11-01 07:30"
+}
+
+export const DEFAULT_ALARM_CONFIG: AlarmClockConfig = {
+  isEnabled: false,
+  time: '07:30',
+  selectedSound: 'voyager_violin',
+  snoozeMinutes: 5,
+  snoozeUntil: null,
+  lastDismissedKey: null,
+};
+
 export interface ExportPayload {
   exportedAt: string;
   version: string;
@@ -103,6 +122,7 @@ export interface ExportPayload {
   profile: UserProfile;
   settings: AppSettings;
   logs: DailyLogsMap;
+  alarmClock?: AlarmClockConfig;
 }
 
 // ============================================================================
@@ -276,6 +296,20 @@ export async function loadAppState<T>(key: string, fallback: T): Promise<T> {
   return prefVal;
 }
 
+/**
+ * Loads AlarmClockConfig using dual-layer persistence (localStorage + Preferences).
+ */
+export async function loadAlarmConfig(): Promise<AlarmClockConfig> {
+  return loadAppState<AlarmClockConfig>(STORAGE_KEYS.ALARM_CLOCK, DEFAULT_ALARM_CONFIG);
+}
+
+/**
+ * Persists AlarmClockConfig to both localStorage and Preferences.
+ */
+export async function saveAlarmConfig(config: AlarmClockConfig): Promise<void> {
+  return saveAppState<AlarmClockConfig>(STORAGE_KEYS.ALARM_CLOCK, config);
+}
+
 // ============================================================================
 // Export Utilities (JSON & RFC-4180 CSV with UTF-8 BOM)
 // ============================================================================
@@ -287,6 +321,7 @@ export function exportDataAsJson(): string {
   const profile = getStorageItem<UserProfile>(STORAGE_KEYS.USER_PROFILE, DEFAULT_USER_PROFILE);
   const settings = getStorageItem<AppSettings>(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
   const logs = getStorageItem<DailyLogsMap>(STORAGE_KEYS.DAILY_LOGS, {});
+  const alarmClock = getStorageItem<AlarmClockConfig>(STORAGE_KEYS.ALARM_CLOCK, DEFAULT_ALARM_CONFIG);
 
   const exportPayload: ExportPayload = {
     exportedAt: new Date().toISOString(),
@@ -295,6 +330,7 @@ export function exportDataAsJson(): string {
     profile,
     settings,
     logs,
+    alarmClock,
   };
 
   return JSON.stringify(exportPayload, null, 2);
