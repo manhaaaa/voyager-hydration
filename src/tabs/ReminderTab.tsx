@@ -19,6 +19,7 @@ import VoyagerChibi from '../components/VoyagerChibi';
 import {
   scheduleNextReminders,
   cancelAllReminders,
+  scheduleNativeAlarm,
   isInQuietHours,
   ScheduleRemindersParams,
   ReminderMode
@@ -85,6 +86,7 @@ export const ReminderTab: React.FC<ReminderTabProps> = ({
       await onUpdateAlarmConfig(patch);
     } else {
       await saveAlarmConfig(updated);
+      await scheduleNativeAlarm(updated);
     }
   };
 

@@ -30,6 +30,7 @@ import {
 } from './utils/storageEngine';
 import {
   playQuickTap,
+  playCosmicSound,
   playGoalCelebrationFanfare,
   setAudioMuted,
   startAlarmPlayback,
@@ -37,7 +38,14 @@ import {
   VOYAGER_AUDIO_TRACKS,
   VoyagerAudioTrackId
 } from './utils/audioEngine';
-import { isInQuietHours } from './utils/notificationEngine';
+import {
+  isInQuietHours,
+  initializeNotificationEngine,
+  scheduleNativeAlarm,
+  ALARM_NOTIFICATION_ID
+} from './utils/notificationEngine';
+import { LocalNotifications } from '@capacitor/local-notifications';
+import { Capacitor } from '@capacitor/core';
 import confetti from 'canvas-confetti';
 
 export default function App() {
@@ -120,7 +128,11 @@ export default function App() {
         setRecordStreak(savedRecordStreak);
         setCustomAvatar(savedAvatar);
         setAudioMuted(!savedProfile.soundEnabled);
-        if (savedAlarm) setAlarmConfig(savedAlarm);
+        if (savedAlarm) {
+          setAlarmConfig(savedAlarm);
+          scheduleNativeAlarm(savedAlarm).catch(() => {});
+        }
+        initializeNotificationEngine().catch(() => {});
 
         // Step 3: Fetch weather with GPS and fallback
         setIsWeatherLoading(true);
@@ -184,9 +196,58 @@ export default function App() {
     setAlarmConfig((prev) => {
       const updated = { ...prev, ...patch };
       saveAlarmConfig(updated);
+      scheduleNativeAlarm(updated).catch(() => {});
       return updated;
     });
   }, []);
+
+  // Native Android LocalNotifications listener for custom ringtone & alarm triggering
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    let receivedSub: { remove: () => Promise<void> } | null = null;
+    let actionSub: { remove: () => Promise<void> } | null = null;
+
+    const setupListeners = async () => {
+      try {
+        receivedSub = await LocalNotifications.addListener(
+          'localNotificationReceived',
+          (notification) => {
+            if (notification.id === ALARM_NOTIFICATION_ID || notification.extra?.isAlarm) {
+              setIsAlarmRinging(true);
+              startAlarmPlayback(
+                notification.extra?.selectedSound || alarmConfig.selectedSound || 'voyager_violin'
+              );
+            } else if (profile.soundEnabled) {
+              playCosmicSound(settings.selectedSound || 'violin', { volume: 1.0 });
+            }
+          }
+        );
+
+        actionSub = await LocalNotifications.addListener(
+          'localNotificationActionPerformed',
+          (action) => {
+            const notification = action.notification;
+            if (notification.id === ALARM_NOTIFICATION_ID || notification.extra?.isAlarm) {
+              setIsAlarmRinging(true);
+              startAlarmPlayback(
+                notification.extra?.selectedSound || alarmConfig.selectedSound || 'voyager_violin'
+              );
+            }
+          }
+        );
+      } catch (err) {
+        console.warn('[App] LocalNotifications listener error:', err);
+      }
+    };
+
+    setupListeners();
+
+    return () => {
+      receivedSub?.remove().catch(() => {});
+      actionSub?.remove().catch(() => {});
+    };
+  }, [alarmConfig.selectedSound, profile.soundEnabled, settings.selectedSound]);
 
   // 1-second interval ticker for independent alarm triggering
   useEffect(() => {
@@ -230,6 +291,7 @@ export default function App() {
         lastDismissedKey: currentMinuteKey,
       };
       saveAlarmConfig(updated);
+      scheduleNativeAlarm(updated).catch(() => {});
       return updated;
     });
   }, []);
@@ -248,6 +310,7 @@ export default function App() {
         lastDismissedKey: currentMinuteKey,
       };
       saveAlarmConfig(updated);
+      scheduleNativeAlarm(updated).catch(() => {});
       return updated;
     });
   }, [alarmConfig.snoozeMinutes]);

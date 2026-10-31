@@ -21,6 +21,47 @@ export const NOTIFICATION_CHANNEL_ID = 'voyager_hydration_reminders';
 export const NOTIFICATION_CHANNEL_NAME = 'Nhắc nhở uống nước Voyager';
 export const NOTIFICATION_CHANNEL_DESCRIPTION = 'Kênh thông báo nhắc nhở uống nước vũ trụ Reverse: 1999';
 
+export const ALARM_NOTIFICATION_ID = 9000;
+
+export const ANDROID_SOUND_CHANNELS: Record<string, { channelId: string; name: string; soundFile: string }> = {
+  voyager_violin: {
+    channelId: 'voyager_alarm_voyager_violin',
+    name: 'Báo thức Voyager - Violin Tinh cầu',
+    soundFile: 'voyager_violin.mp3',
+  },
+  voyager_greeting: {
+    channelId: 'voyager_alarm_voyager_greeting',
+    name: 'Báo thức Voyager - Lời chào Tinh cầu',
+    soundFile: 'voyager_greeting.mp3',
+  },
+  voyager_battle: {
+    channelId: 'voyager_alarm_voyager_battle',
+    name: 'Báo thức Voyager - Khúc dạo đầu Vũ trụ',
+    soundFile: 'voyager_battle.mp3',
+  },
+  bubble: {
+    channelId: 'voyager_alarm_bubble',
+    name: 'Báo thức Voyager - Chuông pha lê',
+    soundFile: 'voyager_violin.mp3',
+  },
+};
+
+export function resolveAndroidNotificationSound(soundId?: string): {
+  channelId: string;
+  soundFile: string;
+} {
+  if (soundId && ANDROID_SOUND_CHANNELS[soundId]) {
+    return {
+      channelId: ANDROID_SOUND_CHANNELS[soundId].channelId,
+      soundFile: ANDROID_SOUND_CHANNELS[soundId].soundFile,
+    };
+  }
+  return {
+    channelId: ANDROID_SOUND_CHANNELS.voyager_violin.channelId,
+    soundFile: ANDROID_SOUND_CHANNELS.voyager_violin.soundFile,
+  };
+}
+
 export const REMINDER_MODES = {
   GENTLE: 'gentle',
   SMART: 'smart',
@@ -192,6 +233,7 @@ export async function initializeNotificationEngine(): Promise<void> {
   }
 
   try {
+    // 1. Default hydration reminder channel with Voyager Violin ringtone
     await LocalNotifications.createChannel({
       id: NOTIFICATION_CHANNEL_ID,
       name: NOTIFICATION_CHANNEL_NAME,
@@ -199,8 +241,21 @@ export async function initializeNotificationEngine(): Promise<void> {
       importance: 4,      // High importance (heads-up banner)
       visibility: 1,      // Public on lockscreen
       vibration: true,
-      sound: undefined,
+      sound: 'voyager_violin.mp3',
     });
+
+    // 2. Dedicated Alarm Clock channels mapped to each Voyager audio asset in res/raw
+    for (const cfg of Object.values(ANDROID_SOUND_CHANNELS)) {
+      await LocalNotifications.createChannel({
+        id: cfg.channelId,
+        name: cfg.name,
+        description: `${cfg.name} (Reverse: 1999)`,
+        importance: 5,    // Max importance for alarm alerts
+        visibility: 1,
+        vibration: true,
+        sound: cfg.soundFile,
+      });
+    }
   } catch (err) {
     console.warn('[NotificationEngine] Channel creation error:', err);
   }
@@ -244,21 +299,109 @@ export async function requestPermissions(): Promise<boolean> {
 }
 
 /**
- * Cancels all currently scheduled local notifications.
+ * Cancels all currently scheduled hydration reminders (excluding standalone alarm ID 9000).
  */
 export async function cancelAllReminders(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
 
   try {
     const pending = await LocalNotifications.getPending();
-    if (pending.notifications.length > 0) {
+    const reminderIds = pending.notifications
+      .filter((n) => n.id !== ALARM_NOTIFICATION_ID)
+      .map((n) => ({ id: n.id }));
+    if (reminderIds.length > 0) {
       await LocalNotifications.cancel({
-        notifications: pending.notifications.map((n) => ({ id: n.id })),
+        notifications: reminderIds,
       });
     }
   } catch (err) {
     console.warn('[NotificationEngine] cancelAllReminders failed:', err);
   }
+}
+
+/**
+ * Cancels the standalone native Android alarm notification (ID 9000).
+ */
+export async function cancelNativeAlarm(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+
+  try {
+    await LocalNotifications.cancel({
+      notifications: [{ id: ALARM_NOTIFICATION_ID }],
+    });
+  } catch (err) {
+    console.warn('[NotificationEngine] cancelNativeAlarm failed:', err);
+  }
+}
+
+/**
+ * Schedules a standalone native Android alarm notification with the selected Voyager sound.
+ */
+export async function scheduleNativeAlarm(config: {
+  isEnabled: boolean;
+  time: string;
+  selectedSound: string;
+  snoozeUntil?: number | null;
+}): Promise<Date | null> {
+  if (!config.isEnabled) {
+    await cancelNativeAlarm();
+    return null;
+  }
+
+  const now = new Date();
+  let targetDate: Date;
+
+  if (config.snoozeUntil && config.snoozeUntil > now.getTime()) {
+    targetDate = new Date(config.snoozeUntil);
+  } else {
+    const [hStr, mStr] = (config.time || '07:30').split(':');
+    const alarmH = parseInt(hStr, 10) || 7;
+    const alarmM = parseInt(mStr, 10) || 30;
+    targetDate = new Date(now);
+    targetDate.setHours(alarmH, alarmM, 0, 0);
+    if (targetDate.getTime() <= now.getTime()) {
+      targetDate.setDate(targetDate.getDate() + 1);
+    }
+  }
+
+  if (Capacitor.isNativePlatform()) {
+    try {
+      let granted = await checkPermissions();
+      if (!granted) {
+        granted = await requestPermissions();
+      }
+      if (!granted) {
+        return targetDate;
+      }
+
+      await initializeNotificationEngine();
+      await cancelNativeAlarm();
+
+      const { channelId, soundFile } = resolveAndroidNotificationSound(config.selectedSound);
+
+      await LocalNotifications.schedule({
+        notifications: [
+          {
+            id: ALARM_NOTIFICATION_ID,
+            title: '⏰ Báo thức Voyager!',
+            body: `Đã đến giờ hẹn (${config.time}) — Cùng Voyager khởi đầu ngày mới tràn đầy năng lượng! ✨`,
+            schedule: { at: targetDate, allowWhileIdle: true },
+            channelId,
+            sound: soundFile,
+            extra: {
+              isAlarm: true,
+              alarmTime: config.time,
+              selectedSound: config.selectedSound,
+            },
+          },
+        ],
+      });
+    } catch (err) {
+      console.warn('[NotificationEngine] scheduleNativeAlarm failed:', err);
+    }
+  }
+
+  return targetDate;
 }
 
 /**
@@ -307,8 +450,9 @@ export async function scheduleNextReminders(params: ScheduleRemindersParams): Pr
     id: number;
     title: string;
     body: string;
-    schedule: { at: Date };
+    schedule: { at: Date; allowWhileIdle?: boolean };
     channelId: string;
+    sound?: string;
     extra: Record<string, any>;
   }> = [];
 
@@ -332,8 +476,9 @@ export async function scheduleNextReminders(params: ScheduleRemindersParams): Pr
       id: 2000 + slot,
       title: template.title,
       body: template.body,
-      schedule: { at: slotTime },
+      schedule: { at: slotTime, allowWhileIdle: true },
       channelId: NOTIFICATION_CHANNEL_ID,
+      sound: 'voyager_violin.mp3',
       extra: {
         slotIndex: slot,
         mode,
@@ -347,9 +492,16 @@ export async function scheduleNextReminders(params: ScheduleRemindersParams): Pr
 
   if (Capacitor.isNativePlatform() && notificationsToSchedule.length > 0) {
     try {
-      await LocalNotifications.schedule({
-        notifications: notificationsToSchedule,
-      });
+      let granted = await checkPermissions();
+      if (!granted) {
+        granted = await requestPermissions();
+      }
+      if (granted) {
+        await initializeNotificationEngine();
+        await LocalNotifications.schedule({
+          notifications: notificationsToSchedule,
+        });
+      }
     } catch (err) {
       console.warn('[NotificationEngine] LocalNotifications.schedule failed:', err);
     }
