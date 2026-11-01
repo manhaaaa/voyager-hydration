@@ -2,11 +2,14 @@
  * Voyager's Cosmic Hydration - Local Notification Scheduler Engine
  * File: src/utils/notificationEngine.ts
  *
- * Local notifications scheduler integrated with @capacitor/local-notifications.
+ * Local notifications scheduler integrated with @capacitor/local-notifications
+ * and Android Native Background Guardian (VoyagerNotificationService).
  * Features:
  * - 3 Reminder Modes: Nhẹ nhàng (Gentle), Thông minh (Smart), Đều đặn (Regular)
  * - Dynamic interval calculation based on remaining glasses and time to sleep
  * - Strict Quiet Hours enforcement (01:00 - 07:00), deferring alerts to wakeTime (07:00 AM)
+ * - Exact Alarm & Doze-mode bypass (allowWhileIdle: true + USE_EXACT_ALARM)
+ * - Instant & 5-second Background Notification Verification
  * - Thematic Reverse: 1999 Voyager celestial messages
  */
 
@@ -22,6 +25,7 @@ export const NOTIFICATION_CHANNEL_NAME = 'Nhắc nhở uống nước Voyager';
 export const NOTIFICATION_CHANNEL_DESCRIPTION = 'Kênh thông báo nhắc nhở uống nước vũ trụ Reverse: 1999';
 
 export const ALARM_NOTIFICATION_ID = 9000;
+export const TEST_NOTIFICATION_ID = 9500;
 
 export const ANDROID_SOUND_CHANNELS: Record<string, { channelId: string; name: string; soundFile: string }> = {
   voyager_violin: {
@@ -42,6 +46,16 @@ export const ANDROID_SOUND_CHANNELS: Record<string, { channelId: string; name: s
   bubble: {
     channelId: 'voyager_alarm_bubble',
     name: 'Báo thức Voyager - Chuông pha lê',
+    soundFile: 'voyager_violin.mp3',
+  },
+  violin: {
+    channelId: 'voyager_alarm_voyager_violin',
+    name: 'Báo thức Voyager - Violin Tinh cầu',
+    soundFile: 'voyager_violin.mp3',
+  },
+  ripple: {
+    channelId: NOTIFICATION_CHANNEL_ID,
+    name: NOTIFICATION_CHANNEL_NAME,
     soundFile: 'voyager_violin.mp3',
   },
 };
@@ -128,6 +142,7 @@ export interface ScheduleRemindersParams {
   wakeTime?: string;     // Default: "07:00"
   sleepTime?: string;    // Default: "01:00"
   cupSize?: number;      // Default: 250
+  selectedSound?: string;
 }
 
 // ============================================================================
@@ -233,19 +248,24 @@ export async function initializeNotificationEngine(): Promise<void> {
   }
 
   try {
-    // 1. Default hydration reminder channel with Voyager Violin ringtone
+    // 1. Default hydration reminder channel with Voyager Violin ringtone & high importance
     await LocalNotifications.createChannel({
       id: NOTIFICATION_CHANNEL_ID,
       name: NOTIFICATION_CHANNEL_NAME,
       description: NOTIFICATION_CHANNEL_DESCRIPTION,
-      importance: 4,      // High importance (heads-up banner)
+      importance: 4,      // High importance (NotificationManager.IMPORTANCE_HIGH -> heads-up banner + sound)
       visibility: 1,      // Public on lockscreen
       vibration: true,
       sound: 'voyager_violin.mp3',
     });
 
     // 2. Dedicated Alarm Clock channels mapped to each Voyager audio asset in res/raw
+    const uniqueChannels = new Set<string>();
     for (const cfg of Object.values(ANDROID_SOUND_CHANNELS)) {
+      if (uniqueChannels.has(cfg.channelId) || cfg.channelId === NOTIFICATION_CHANNEL_ID) {
+        continue;
+      }
+      uniqueChannels.add(cfg.channelId);
       await LocalNotifications.createChannel({
         id: cfg.channelId,
         name: cfg.name,
@@ -299,7 +319,100 @@ export async function requestPermissions(): Promise<boolean> {
 }
 
 /**
- * Cancels all currently scheduled hydration reminders (excluding standalone alarm ID 9000).
+ * Checks whether exact alarms are enabled on Android 12+ (API 31+).
+ */
+export async function checkExactAlarmStatus(): Promise<boolean> {
+  if (!Capacitor.isNativePlatform()) {
+    return true;
+  }
+  try {
+    if (typeof LocalNotifications.checkExactNotificationSetting === 'function') {
+      const res = await LocalNotifications.checkExactNotificationSetting();
+      return res.exact_alarm === 'granted';
+    }
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Triggers an immediate or delayed background test notification to verify Android delivery.
+ * @param delaySeconds 0 for immediate (1s), or >0 (e.g. 5s) to test background/lockscreen delivery.
+ */
+export async function sendTestNotification(
+  delaySeconds = 0,
+  soundId = 'voyager_violin'
+): Promise<{
+  scheduledAt: Date;
+  id: number;
+  channelId: string;
+  allowWhileIdle: boolean;
+  permissionGranted: boolean;
+}> {
+  let permissionGranted = await checkPermissions();
+  if (!permissionGranted) {
+    permissionGranted = await requestPermissions();
+  }
+
+  const effectiveDelayMs = Math.max(1000, delaySeconds * 1000);
+  const scheduledAt = new Date(Date.now() + effectiveDelayMs);
+  const notificationId = delaySeconds > 0 ? TEST_NOTIFICATION_ID + 1 : TEST_NOTIFICATION_ID;
+  const { channelId, soundFile } = resolveAndroidNotificationSound(soundId);
+
+  const title =
+    delaySeconds > 0
+      ? '🌌 Voyager chạy ngầm thành công! ✨'
+      : '🎻 Thông báo Voyager hoạt động! ✨';
+  const body =
+    delaySeconds > 0
+      ? `Thông báo chạy ngầm sau ${delaySeconds} giây đã phát thành công! Hãy uống một ngụm nước mát cùng Voyager nhé! 💧`
+      : 'Hệ thống thông báo & âm báo Violin Tinh cầu trên Android đã sẵn sàng nhắc bạn uống nước!';
+
+  if (Capacitor.isNativePlatform() && permissionGranted) {
+    try {
+      await initializeNotificationEngine();
+      await LocalNotifications.schedule({
+        notifications: [
+          {
+            id: notificationId,
+            title,
+            body,
+            schedule: { at: scheduledAt, allowWhileIdle: true },
+            channelId,
+            sound: soundFile,
+            smallIcon: 'ic_stat_icon_config_sample',
+            iconColor: '#38BDF8',
+            extra: {
+              isTestNotification: true,
+              delaySeconds,
+              selectedSound: soundId,
+            },
+          },
+        ],
+      });
+    } catch (err) {
+      console.warn('[NotificationEngine] sendTestNotification failed:', err);
+    }
+  } else if (typeof window !== 'undefined' && 'Notification' in window && permissionGranted) {
+    setTimeout(() => {
+      try {
+        new Notification(title, { body });
+      } catch {}
+    }, effectiveDelayMs);
+  }
+
+  return {
+    scheduledAt,
+    id: notificationId,
+    channelId,
+    allowWhileIdle: true,
+    permissionGranted,
+  };
+}
+
+/**
+ * Cancels all currently scheduled hydration reminders (excluding standalone alarm ID 9000 and test IDs).
  */
 export async function cancelAllReminders(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
@@ -307,7 +420,12 @@ export async function cancelAllReminders(): Promise<void> {
   try {
     const pending = await LocalNotifications.getPending();
     const reminderIds = pending.notifications
-      .filter((n) => n.id !== ALARM_NOTIFICATION_ID)
+      .filter(
+        (n) =>
+          n.id !== ALARM_NOTIFICATION_ID &&
+          n.id !== TEST_NOTIFICATION_ID &&
+          n.id !== TEST_NOTIFICATION_ID + 1
+      )
       .map((n) => ({ id: n.id }));
     if (reminderIds.length > 0) {
       await LocalNotifications.cancel({
@@ -388,6 +506,8 @@ export async function scheduleNativeAlarm(config: {
             schedule: { at: targetDate, allowWhileIdle: true },
             channelId,
             sound: soundFile,
+            smallIcon: 'ic_stat_icon_config_sample',
+            iconColor: '#38BDF8',
             extra: {
               isAlarm: true,
               alarmTime: config.time,
@@ -405,7 +525,7 @@ export async function scheduleNativeAlarm(config: {
 }
 
 /**
- * Schedules rolling reminders pipeline (up to 5 rolling slots).
+ * Schedules rolling reminders pipeline (up to 8 rolling slots).
  * Adapts to mode, deficit, awake window, and strict quiet hours.
  * Returns the timestamp of the very next reminder.
  */
@@ -445,7 +565,7 @@ export async function scheduleNextReminders(params: ScheduleRemindersParams): Pr
     intervalMinutes = calculateSmartInterval(minutesToSleep, remainingGlasses);
   }
 
-  // Compute 5 rolling reminder slots
+  // Compute 8 rolling reminder slots for full-day background coverage
   const notificationsToSchedule: Array<{
     id: number;
     title: string;
@@ -453,6 +573,8 @@ export async function scheduleNextReminders(params: ScheduleRemindersParams): Pr
     schedule: { at: Date; allowWhileIdle?: boolean };
     channelId: string;
     sound?: string;
+    smallIcon?: string;
+    iconColor?: string;
     extra: Record<string, any>;
   }> = [];
 
@@ -479,6 +601,8 @@ export async function scheduleNextReminders(params: ScheduleRemindersParams): Pr
       schedule: { at: slotTime, allowWhileIdle: true },
       channelId: NOTIFICATION_CHANNEL_ID,
       sound: 'voyager_violin.mp3',
+      smallIcon: 'ic_stat_icon_config_sample',
+      iconColor: '#38BDF8',
       extra: {
         slotIndex: slot,
         mode,

@@ -20,6 +20,9 @@ import {
   scheduleNextReminders,
   cancelAllReminders,
   scheduleNativeAlarm,
+  sendTestNotification,
+  checkPermissions,
+  requestPermissions,
   isInQuietHours,
   ScheduleRemindersParams,
   ReminderMode
@@ -67,6 +70,28 @@ export const ReminderTab: React.FC<ReminderTabProps> = ({
   const [previewingSound, setPreviewingSound] = useState<SoundType | null>(null);
   const [localAlarm, setLocalAlarm] = useState<AlarmClockConfig>(alarmConfig || DEFAULT_ALARM_CONFIG);
   const [previewingAlarmSound, setPreviewingAlarmSound] = useState<string | null>(null);
+  const [testBannerStatus, setTestBannerStatus] = useState<string | null>(null);
+  const [hasPermission, setHasPermission] = useState<boolean>(true);
+
+  useEffect(() => {
+    checkPermissions().then((ok) => setHasPermission(ok)).catch(() => {});
+  }, []);
+
+  const handleTestNotification = async (delaySeconds: number) => {
+    playQuickTap();
+    const granted = await requestPermissions();
+    setHasPermission(granted);
+    if (delaySeconds === 0) {
+      playCosmicSound(settings.selectedSound || 'violin', { volume: 1.0 });
+      setTestBannerStatus('Đang phát thông báo thử ngay lập tức...');
+    } else {
+      setTestBannerStatus(`Đã hẹn chạy ngầm! Hãy thoát ra màn hình chính — thông báo sẽ nổ sau ${delaySeconds} giây ✨`);
+    }
+    await sendTestNotification(delaySeconds, localAlarm.selectedSound || 'voyager_violin');
+    setTimeout(() => {
+      setTestBannerStatus(null);
+    }, delaySeconds > 0 ? (delaySeconds + 3) * 1000 : 3500);
+  };
 
   useEffect(() => {
     if (alarmConfig) {
@@ -328,6 +353,49 @@ export const ReminderTab: React.FC<ReminderTabProps> = ({
               </div>
             </button>
           </div>
+        </div>
+
+        {/* Android Background & Notification Verification Controls */}
+        <div className="mt-3 pt-3 border-t border-slate-800/80 space-y-2">
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="text-emerald-400 font-semibold flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              Chạy ngầm Android (Foreground Guardian): Đã bật
+            </span>
+            <span className="text-slate-400 font-mono">
+              {hasPermission ? 'Quyền: Đã cấp ✓' : 'Chưa cấp quyền'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              data-testid="test-notification-now-btn"
+              onClick={() => handleTestNotification(0)}
+              className="px-3 py-2 rounded-xl bg-cosmic-blue/15 hover:bg-cosmic-blue/25 border-2 border-cosmic-blue/60 text-cosmic-blue text-xs font-bold flex items-center justify-center gap-1.5 active:translate-y-0.5 transition"
+            >
+              <Bell className="w-3.5 h-3.5" />
+              Phát thử ngay
+            </button>
+            <button
+              type="button"
+              data-testid="test-notification-bg-btn"
+              onClick={() => handleTestNotification(5)}
+              className="px-3 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border-2 border-amber-400/60 text-amber-300 text-xs font-bold flex items-center justify-center gap-1.5 active:translate-y-0.5 transition"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Thử chạy ngầm (5s)
+            </button>
+          </div>
+
+          {testBannerStatus && (
+            <div
+              data-testid="test-notification-status"
+              className="p-2 rounded-xl bg-emerald-950/50 border border-emerald-500/40 text-[11px] text-emerald-200 font-medium text-center"
+            >
+              {testBannerStatus}
+            </div>
+          )}
         </div>
       </div>
 

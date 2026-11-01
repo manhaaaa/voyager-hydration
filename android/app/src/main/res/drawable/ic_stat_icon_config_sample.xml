@@ -1,0 +1,11 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <!-- Cosmic Water Drop & Star Status Bar Notification Icon -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,2.69l5.66,5.66a8,8 0,1 1,-11.31 0zM12,11.5l1.09,2.21l2.44,0.35l-1.77,1.72l0.42,2.43L12,17.06l-2.18,1.15l0.42,-2.43l-1.77,-1.72l2.44,-0.35z" />
+</vector>

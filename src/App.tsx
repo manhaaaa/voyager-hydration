@@ -41,6 +41,8 @@ import {
 import {
   isInQuietHours,
   initializeNotificationEngine,
+  requestPermissions,
+  scheduleNextReminders,
   scheduleNativeAlarm,
   ALARM_NOTIFICATION_ID
 } from './utils/notificationEngine';
@@ -132,7 +134,22 @@ export default function App() {
           setAlarmConfig(savedAlarm);
           scheduleNativeAlarm(savedAlarm).catch(() => {});
         }
-        initializeNotificationEngine().catch(() => {});
+        await requestPermissions().catch(() => false);
+        await initializeNotificationEngine().catch(() => {});
+        const initialTargetMl =
+          savedProfile.customDailyTargetMl && savedProfile.customDailyTargetMl > 0
+            ? savedProfile.customDailyTargetMl
+            : calculateDailyWaterGoal(savedProfile.weightKg, savedProfile.activityLevel, 0);
+        const initialConsumedMl = savedLogs[todayKey]?.consumedMl || 0;
+        scheduleNextReminders({
+          enabled: savedSettings.reminderEnabled,
+          mode: savedSettings.reminderMode || 'smart',
+          targetMl: initialTargetMl,
+          consumedMl: initialConsumedMl,
+          wakeTime: savedSettings.wakeTime || savedProfile.wakeTime || '07:00',
+          sleepTime: savedSettings.sleepTime || savedProfile.bedTime || '01:00',
+          selectedSound: savedSettings.selectedSound || 'violin',
+        }).catch(() => {});
 
         // Step 3: Fetch weather with GPS and fallback
         setIsWeatherLoading(true);
@@ -157,6 +174,29 @@ export default function App() {
   useEffect(() => {
     setAudioMuted(!profile.soundEnabled);
   }, [profile.soundEnabled]);
+
+  // Keep background hydration reminders synced whenever intake or settings change
+  useEffect(() => {
+    scheduleNextReminders({
+      enabled: settings.reminderEnabled,
+      mode: settings.reminderMode || 'smart',
+      targetMl: todayTargetMl,
+      consumedMl: todayRecord.consumedMl,
+      wakeTime: settings.wakeTime || profile.wakeTime || '07:00',
+      sleepTime: settings.sleepTime || profile.bedTime || '01:00',
+      selectedSound: settings.selectedSound || 'violin',
+    }).catch(() => {});
+  }, [
+    settings.reminderEnabled,
+    settings.reminderMode,
+    settings.wakeTime,
+    settings.sleepTime,
+    settings.selectedSound,
+    profile.wakeTime,
+    profile.bedTime,
+    todayTargetMl,
+    todayRecord.consumedMl,
+  ]);
 
   // 5. State Modification Handlers
   const handleUpdateProfile = useCallback(async (updated: Partial<UserProfile>) => {
